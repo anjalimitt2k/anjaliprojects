@@ -22,10 +22,49 @@ log = logging.getLogger(__name__)
 
 
 def _caiso():
+    import socket
+    socket.setdefaulttimeout(120)  # OASIS occasionally never answers; without this a pull hangs forever
     import truststore  # corporate proxy injects its own CA; use the OS trust store
     truststore.inject_into_ssl()
     import gridstatus
     return gridstatus.CAISO()
+
+
+def _oasis_chunked(name: str, fetch, days: int = 28, expect_per_day: int | None = None) -> pd.DataFrame:
+    """Pull an OASIS series in local-midnight-aligned chunks of <= `days`, with retries.
+
+    Why not gridstatus's own 31-day chunker: it derives chunk boundaries from the (PDT) start time,
+    so once the window crosses into PST every chunk starts at 23:00 the day before and spans 31d+1h.
+    OASIS silently rejects those ("No data found") and we lost ~280 winter days per source that way.
+    `fetch(start_ts, end_ts)` receives tz-aware local timestamps; end is exclusive.
+    """
+    lo = pd.Timestamp(C.START, tz=C.TZ)
+    hi = pd.Timestamp(C.END, tz=C.TZ) + pd.Timedelta(days=1)
+    frames = []
+    edges = list(pd.date_range(lo, hi, freq=f"{days}D")) + [hi]
+    for a, b in zip(edges[:-1], edges[1:]):
+        if a >= b:
+            continue
+        for attempt in range(5):
+            try:
+                df = fetch(a, b)
+                if df is None or len(df) == 0:
+                    raise RuntimeError("empty result")
+                break
+            except Exception as e:  # noqa: BLE001
+                log.warning("%s chunk %s..%s attempt %d failed: %s", name, a.date(), b.date(), attempt + 1, str(e)[:120])
+                time.sleep(15 * (attempt + 1))
+        else:
+            raise RuntimeError(f"{name}: chunk {a.date()}..{b.date()} failed 5 times")
+        if expect_per_day:
+            n_days = (b - a).days
+            got = df["Interval Start"].nunique()
+            if got < 0.95 * expect_per_day * n_days:
+                log.warning("%s chunk %s..%s looks short: %d intervals for %d days", name, a.date(), b.date(), got, n_days)
+        frames.append(df)
+        log.info("%s chunk %s..%s ok (%d rows)", name, a.date(), b.date(), len(df))
+    out = pd.concat(frames, ignore_index=True)
+    return out.drop_duplicates()
 
 
 def _cached(name: str, fn):
@@ -66,35 +105,42 @@ def pull_fuel_mix_5min() -> pd.DataFrame:
 
 def pull_load_fc_da() -> pd.DataFrame:
     c = _caiso()
-    df = c.get_load_forecast_day_ahead(C.START, end=pd.Timestamp(C.END) + pd.Timedelta(days=1))
-    df = df[df["TAC Area Name"] == C.LOAD_AREA]
-    return df[["Interval Start", "Publish Time", "Load Forecast"]]
+    def f(a, b):
+        df = c.get_load_forecast_day_ahead(a, end=b)
+        return df[df["TAC Area Name"] == C.LOAD_AREA][["Interval Start", "Publish Time", "Load Forecast"]]
+    return _oasis_chunked("load_fc_da", f, expect_per_day=24)
 
 
 def pull_lmp_da() -> pd.DataFrame:
     c = _caiso()
-    df = c.get_lmp(C.START, end=pd.Timestamp(C.END) + pd.Timedelta(days=1),
-                   market="DAY_AHEAD_HOURLY", locations=[C.HUB])
-    return df[["Interval Start", "LMP", "Energy", "Congestion", "Loss"]]
+    def f(a, b):
+        df = c.get_lmp(a, end=b, market="DAY_AHEAD_HOURLY", locations=[C.HUB])
+        return df[["Interval Start", "LMP", "Energy", "Congestion", "Loss"]]
+    return _oasis_chunked("lmp_da", f, expect_per_day=24)
 
 
 def pull_lmp_rt15() -> pd.DataFrame:
     c = _caiso()
-    df = c.get_lmp(C.START, end=pd.Timestamp(C.END) + pd.Timedelta(days=1),
-                   market="REAL_TIME_15_MIN", locations=[C.HUB])
-    return df[["Interval Start", "LMP"]]
+    def f(a, b):
+        df = c.get_lmp(a, end=b, market="REAL_TIME_15_MIN", locations=[C.HUB])
+        return df[["Interval Start", "LMP"]]
+    return _oasis_chunked("lmp_rt15", f, expect_per_day=96)
 
 
 def pull_ren_hourly() -> pd.DataFrame:
     c = _caiso()
-    df = c.get_renewables_hourly(C.START, end=pd.Timestamp(C.END) + pd.Timedelta(days=1))
-    return df[df["Location"].isin(["CAISO", C.ZONE])][["Interval Start", "Location", "Solar", "Wind"]]
+    def f(a, b):
+        df = c.get_renewables_hourly(a, end=b)
+        return df[df["Location"].isin(["CAISO", C.ZONE])][["Interval Start", "Location", "Solar", "Wind"]]
+    return _oasis_chunked("ren_hourly", f, expect_per_day=24)
 
 
 def pull_ren_fc_dam() -> pd.DataFrame:
     c = _caiso()
-    df = c.get_renewables_forecast_dam(C.START, end=pd.Timestamp(C.END) + pd.Timedelta(days=1))
-    return df[df["Location"].isin(["CAISO", C.ZONE])][["Interval Start", "Publish Time", "Location", "Solar MW", "Wind MW"]]
+    def f(a, b):
+        df = c.get_renewables_forecast_dam(a, end=b)
+        return df[df["Location"].isin(["CAISO", C.ZONE])][["Interval Start", "Publish Time", "Location", "Solar MW", "Wind MW"]]
+    return _oasis_chunked("ren_fc_dam", f, expect_per_day=24)
 
 
 def pull_weather() -> pd.DataFrame:
@@ -141,8 +187,8 @@ SOURCES = {
 }
 
 
-def pull_all() -> dict[str, pd.DataFrame]:
-    return {k: _cached(k, fn) for k, fn in SOURCES.items()}
+def pull_all(only: list[str] | None = None) -> dict[str, pd.DataFrame]:
+    return {k: _cached(k, fn) for k, fn in SOURCES.items() if not only or k in only}
 
 
 # ---------------------------------------------------------------- tidy join

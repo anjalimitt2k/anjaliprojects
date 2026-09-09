@@ -256,11 +256,14 @@ def build_hourly(raw: dict[str, pd.DataFrame] | None = None) -> pd.DataFrame:
     w.columns = [f"{v}_{p}" for v, p in w.columns]
     out = out.join(w)
 
-    # --- known structural gap: Outlook feeds omit the repeated 01:00 PST hour on fall-back days
-    out["load_imputed"] = out["load_mw"].isna()
+    # --- impute *isolated* single-hour gaps only (valid neighbours on both sides). The known case is the
+    # repeated 01:00 PST hour that Outlook feeds omit on fall-back days. Multi-hour Outlook outages
+    # (there are four, 3-9h, in 2024) stay NaN so no model ever trains or scores on invented load.
+    isolated = out["load_mw"].isna() & out["load_mw"].shift(1).notna() & out["load_mw"].shift(-1).notna()
+    out["load_imputed"] = isolated
     for col in ["load_mw", "solar_outlook_mw", "wind_outlook_mw"]:
-        out[col] = out[col].interpolate(limit=1, limit_area="inside")
-    out["load_imputed"] &= out["load_mw"].notna()
+        filled = out[col].interpolate(limit=1, limit_area="inside")
+        out[col] = out[col].where(~isolated, filled)
 
     # --- first-class derived columns
     # net load = CAISO's own "net demand" definition: Outlook demand minus Outlook fleet solar + wind

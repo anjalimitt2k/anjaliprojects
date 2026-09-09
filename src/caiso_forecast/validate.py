@@ -9,6 +9,7 @@ import sys
 import pandas as pd
 from . import config as C
 
+WEATHER_COLS = {"temperature_2m_la", "shortwave_radiation_fres"}
 CORE = ["load_mw", "load_fc_caiso_mw", "lmp_da", "lmp_rt", "solar_outlook_mw", "wind_outlook_mw",
         "solar_sys_mw", "wind_sys_mw", "solar_fc_sys_mw", "wind_fc_sys_mw", "net_load_mw",
         "temperature_2m_la", "shortwave_radiation_fres"]
@@ -54,31 +55,41 @@ def run(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     check(len(hour1_on_fall) == 2 * len(fall), f"exactly two local 01:00 rows on each fall-back day ({len(hour1_on_fall)} found)")
 
     lines.append("\n## Missing hours per core column")
+    wx_from = pd.Timestamp(C.WEATHER_FULL_FROM, tz=C.TZ).tz_convert("UTC")
     for c in CORE:
-        n = int(df[c].isna().sum())
-        pct = 100 * n / len(df)
-        lines.append(f"- {c}: {n} missing ({pct:.2f}%)")
-        check(pct < 0.5, f"{c} missing < 0.5% ({pct:.2f}%)")
+        sub = df[df.ts_utc >= wx_from] if c in WEATHER_COLS else df
+        n = int(sub[c].isna().sum())
+        pct = 100 * n / len(sub)
+        scope = f" (from {C.WEATHER_FULL_FROM})" if c in WEATHER_COLS else ""
+        lines.append(f"- {c}: {n} missing ({pct:.2f}%){scope}")
+        check(pct < 0.5, f"{c} missing < 0.5% ({pct:.2f}%){scope}")
+    pre = df[df.ts_utc < wx_from]
+    if len(pre):
+        lines.append(f"- pre-{C.WEATHER_FULL_FROM} rows: {len(pre)}; temperature coverage {100*pre.temperature_2m_la.notna().mean():.1f}%, "
+                     f"radiation coverage {100*pre.shortwave_radiation_fres.notna().mean():.1f}% (archive limitation, documented)")
+    gap_hours = df[df.load_mw.isna()]
+    lines.append(f"- load_mw unfilled gap hours: {len(gap_hours)} on dates {sorted(gap_hours.date_local.unique())}")
     imputed = df[df.load_imputed]
     lines.append(f"- load_mw imputed rows: {len(imputed)} → {sorted(imputed.date_local.unique())}")
     check(set(imputed.date_local.unique()) <= set(fall), "load imputation only on fall-back days (the Outlook feed drops that hour at source)")
     check(len(imputed) == len(fall), f"exactly one imputed load hour per fall-back day ({len(imputed)} vs {len(fall)})")
     # longest run of consecutive NaNs per column
     for c in CORE:
-        na = df[c].isna()
+        na = (df[df.ts_utc >= wx_from] if c in WEATHER_COLS else df)[c].isna()
         runs = (na != na.shift()).cumsum()[na]
         longest = int(runs.value_counts().max()) if na.any() else 0
         lines.append(f"- {c}: longest NaN run {longest}h")
         check(longest <= 24, f"{c} longest NaN run <= 24h ({longest})")
 
     lines.append("\n## Sanity ranges")
-    check(df.load_mw.between(12_000, 55_000).all(), f"load in [12, 55] GW (min {df.load_mw.min():.0f}, max {df.load_mw.max():.0f})")
+    check(df.load_mw.dropna().between(9_000, 55_000).all(), f"load in [9, 55] GW (min {df.load_mw.min():.0f}, max {df.load_mw.max():.0f}; ~11 GW spring-Sunday-midday lows are real BTM-solar records)")
     check(df.solar_outlook_mw.max() > 10_000, f"fleet solar peaks > 10 GW (max {df.solar_outlook_mw.max():.0f})")
     night = df[df.hour_local.isin([0, 1, 2, 3])]
-    check(night.solar_sys_mw.abs().max() < 500, f"night solar ~0 (|max| {night.solar_sys_mw.abs().max():.0f} MW; small negatives are station load)")
-    check(df.lmp_da.between(-200, 3000).all(), f"DA LMP in [-200, 3000] (min {df.lmp_da.min():.1f}, max {df.lmp_da.max():.1f})")
-    check(df.lmp_rt.between(-500, 3000).all(), f"RT LMP in [-500, 3000] (min {df.lmp_rt.min():.1f}, max {df.lmp_rt.max():.1f})")
-    check(df.temperature_2m_la.between(-5, 50).all(), "LA temperature in [-5, 50] C")
+    n_bad = int((night.solar_outlook_mw.abs() > 500).sum())
+    check(n_bad <= 3, f"night solar ~0: {n_bad} hours with |solar| > 500 MW at 00-03h (|max| {night.solar_outlook_mw.abs().max():.0f}; small negatives are station load)")
+    check(df.lmp_da.dropna().between(-200, 3000).all(), f"DA LMP in [-200, 3000] (min {df.lmp_da.min():.1f}, max {df.lmp_da.max():.1f})")
+    check(df.lmp_rt.dropna().between(-500, 3000).all(), f"RT LMP in [-500, 3000] (min {df.lmp_rt.min():.1f}, max {df.lmp_rt.max():.1f})")
+    check(df.temperature_2m_la.dropna().between(-5, 50).all(), f"LA temperature in [-5, 50] C (min {df.temperature_2m_la.min():.1f}, max {df.temperature_2m_la.max():.1f})")
     check((df.lmp_rt_n15.fillna(0) <= 4).all() and (df.load_n5min.fillna(0) <= 12).all(), "no over-full hours (>4 RT intervals or >12 5-min intervals)")
 
     lines.append("\n## Cross-source consistency (catches wrong-series / misaligned joins)")

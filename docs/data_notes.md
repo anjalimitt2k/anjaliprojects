@@ -27,3 +27,11 @@ Price is SP15 (trading hub). Load and net load are CAISO-system because OASIS pu
 
 ## SSL
 The machine's network injects a self-signed CA; `truststore.inject_into_ssl()` is called before any HTTPS. OASIS is plain HTTP and unaffected.
+
+## Findings from the full-window validation (2026-09-09)
+
+* **OASIS chunking trap.** gridstatus's 31-day chunker derives chunk edges from the PDT start time, so every winter chunk starts at 23:00 PST and spans 31d+1h; OASIS answers "No data found" and gridstatus silently drops the chunk. First pull lost ~280 winter days per source and then hung forever on one unanswered request. Fixed with local-midnight-aligned 28-day chunks, 5 retries, a 120 s socket timeout, and a per-chunk row-count sanity log (`data._oasis_chunked`).
+* **Weather archive limit.** Open-Meteo's previous-runs archive (all models tested: best_match, GFS, ICON, GEM, ECMWF, JMA, MeteoFrance, UKMO) carries only temperature before **2024-01-19** and nothing 2023-12-30..2024-01-19. `config.WEATHER_FULL_FROM = 2024-01-20` marks where weather-driven models may train; rows before that (4,873 h) stay for baselines, EDA and the year-over-year duck-curve plot. Still 2.6 years of full-feature data.
+* **Outlook outages.** Four multi-hour gaps in the Outlook demand/fuel-mix feeds (2024-01-11 15:00–23:00, and 21:00–23:00 on 2024-06-27, 2024-08-29, 2024-09-24): 18 hours, left NaN on purpose. Only isolated single-hour gaps are interpolated (the three fall-back 01:00 PST hours), flagged `load_imputed`.
+* **Extremes are real, not glitches.** Min load 11,021 MW on Easter Sunday 2025-04-20 13:00 (12 clean 5-min intervals; spring-weekend behind-the-meter solar record). Max 47,325 MW on 2024-09-05 17:00 (September 2024 heat wave). Both are post-mortem candidates. One glitch hour of 338 MW "solar" at 2024-05-16 00:00 in the Outlook fuel mix; harmless.
+* **Cross-source checks all hold:** CAISO DA forecast MAPE 2.11% (worst hour-of-day 3.5%), DA/RT LMP corr 0.79 at lag 0 > 0.74 at lag 1, fleet-solar vs Fresno radiation forecast corr peaks at lag 0 (0.92) after the preceding-hour shift, Outlook vs OASIS solar corr 0.999, every CAISO DA forecast published ≥ 14.8 h before its target hour.

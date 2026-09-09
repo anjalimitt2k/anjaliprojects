@@ -23,6 +23,9 @@ WEATHER_POINTS = {                 # population/load centres; SoCal inland drive
     "sac":  (38.58, -121.49),
     "sj":   (37.34, -121.89),
 }
+# Open-Meteo's previous-runs archive (every model) carries only temperature before this date, and nothing
+# at all 2023-12-30..2024-01-19. Weather-driven models train from here; earlier rows serve baselines + EDA.
+WEATHER_FULL_FROM = "2024-01-20"
 WEATHER_VARS = ["temperature_2m", "apparent_temperature", "relative_humidity_2m", "dew_point_2m",
                 "wind_speed_10m", "wind_gusts_10m", "cloud_cover", "shortwave_radiation",
                 "direct_radiation", "precipitation"]

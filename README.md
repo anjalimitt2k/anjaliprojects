@@ -1,6 +1,6 @@
 # CAISO Day-Ahead Forecaster — with a live, graded track record
 
-> Status: **Phase 1 (data) — validation gate in progress.** Nothing below the data layer exists yet, on purpose.
+> Status: **Phase 1 (data) complete — 58/58 validation checks pass** (`data/processed/validation_report.md`). Nothing below the data layer exists yet, on purpose.
 
 A day-ahead load & price forecaster for CAISO (SP15 hub, system load) whose product is not the model but the
 **record**: every afternoon a job commits tomorrow's 24-hour forecast before the day-ahead outcome is known, grades

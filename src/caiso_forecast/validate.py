@@ -9,8 +9,9 @@ import sys
 import pandas as pd
 from . import config as C
 
-CORE = ["load_mw", "load_fc_caiso_mw", "lmp_da", "lmp_rt", "solar_sys_mw", "wind_sys_mw",
-        "solar_fc_sys_mw", "wind_fc_sys_mw", "net_load_mw", "temperature_2m_la"]
+CORE = ["load_mw", "load_fc_caiso_mw", "lmp_da", "lmp_rt", "solar_outlook_mw", "wind_outlook_mw",
+        "solar_sys_mw", "wind_sys_mw", "solar_fc_sys_mw", "wind_fc_sys_mw", "net_load_mw",
+        "temperature_2m_la", "shortwave_radiation_fres"]
 
 
 def dst_days(start: str, end: str, tz: str) -> tuple[list[str], list[str]]:
@@ -61,6 +62,7 @@ def run(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     imputed = df[df.load_imputed]
     lines.append(f"- load_mw imputed rows: {len(imputed)} → {sorted(imputed.date_local.unique())}")
     check(set(imputed.date_local.unique()) <= set(fall), "load imputation only on fall-back days (the Outlook feed drops that hour at source)")
+    check(len(imputed) == len(fall), f"exactly one imputed load hour per fall-back day ({len(imputed)} vs {len(fall)})")
     # longest run of consecutive NaNs per column
     for c in CORE:
         na = df[c].isna()
@@ -71,7 +73,7 @@ def run(df: pd.DataFrame) -> tuple[list[str], list[str]]:
 
     lines.append("\n## Sanity ranges")
     check(df.load_mw.between(12_000, 55_000).all(), f"load in [12, 55] GW (min {df.load_mw.min():.0f}, max {df.load_mw.max():.0f})")
-    check(df.solar_sys_mw.max() > 10_000, f"system solar peaks > 10 GW (max {df.solar_sys_mw.max():.0f})")
+    check(df.solar_outlook_mw.max() > 10_000, f"fleet solar peaks > 10 GW (max {df.solar_outlook_mw.max():.0f})")
     night = df[df.hour_local.isin([0, 1, 2, 3])]
     check(night.solar_sys_mw.abs().max() < 500, f"night solar ~0 (|max| {night.solar_sys_mw.abs().max():.0f} MW; small negatives are station load)")
     check(df.lmp_da.between(-200, 3000).all(), f"DA LMP in [-200, 3000] (min {df.lmp_da.min():.1f}, max {df.lmp_da.max():.1f})")
@@ -92,13 +94,21 @@ def run(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     check(corr > 0.5, "DA/RT LMP correlation > 0.5 (misaligned hours would destroy this)")
     lag = df.lmp_da.corr(df.lmp_rt.shift(1))
     check(corr > lag, f"DA/RT correlation at lag 0 ({corr:.3f}) beats lag 1 ({lag:.3f}) → hours aligned")
-    sc = df.solar_sys_mw.corr(df.shortwave_radiation_fres)
-    lines.append(f"- corr(system solar, Fresno day-before shortwave forecast) = {sc:.3f}")
-    check(sc > 0.8, "solar vs forecast radiation correlation > 0.8 → weather join hour-aligned")
-    solar_peak_hr = df.groupby("hour_local").solar_sys_mw.mean().idxmax()
-    check(11 <= solar_peak_hr <= 14, f"mean solar peaks at local hour {solar_peak_hr} (expect 11–14)")
-    load_peak_hr = df[df.month_local.isin([7, 8, 9])].groupby("hour_local").load_mw.mean().idxmax()
-    check(16 <= load_peak_hr <= 20, f"summer load peaks at local hour {load_peak_hr} (expect 16–20)")
+    sc = {k: df.solar_outlook_mw.corr(df.shortwave_radiation_fres.shift(k)) for k in (-1, 0, 1)}
+    lines.append(f"- corr(fleet solar, Fresno day-before shortwave fc) at shift -1/0/+1h: {sc[-1]:.3f} / {sc[0]:.3f} / {sc[1]:.3f}")
+    check(sc[0] > 0.9 and sc[0] > max(sc[-1], sc[1]), "solar vs forecast radiation peaks at lag 0 (>0.9) → weather hour-aligned after preceding-hour shift")
+    oc = df.solar_outlook_mw.corr(df.solar_sys_mw)
+    check(oc > 0.98, f"Outlook fleet solar vs OASIS solar actual correlation {oc:.3f} > 0.98 (same timing, different scope)")
+    ratio = (df.solar_sys_mw.sum() / df.solar_outlook_mw.sum())
+    lines.append(f"- OASIS solar / Outlook solar energy ratio = {ratio:.3f} (OASIS scope is narrower; document, don't 'fix')")
+    solar_peak_hr = df.groupby("hour_local").solar_outlook_mw.mean().idxmax()
+    check(10 <= solar_peak_hr <= 14, f"mean fleet solar peaks at local hour {solar_peak_hr} (expect 10–14; the fleet plateaus 10–14)")
+    nl_min_hr = df.groupby("hour_local").net_load_mw.mean().idxmin()
+    check(10 <= nl_min_hr <= 15, f"duck-curve belly: mean net load minimum at local hour {nl_min_hr} (expect 10–15)")
+    summer = df[df.month_local.isin([7, 8, 9])]
+    if len(summer):
+        load_peak_hr = summer.groupby("hour_local").load_mw.mean().idxmax()
+        check(16 <= load_peak_hr <= 20, f"summer load peaks at local hour {load_peak_hr} (expect 16–20)")
     tc = df.temperature_2m_la.groupby(df.hour_local).mean().idxmax()
     check(13 <= tc <= 17, f"LA temperature peaks at local hour {tc} (expect 13–17)")
     pub_lead = (df.ts_utc - df.load_fc_publish_utc).dt.total_seconds() / 3600

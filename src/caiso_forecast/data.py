@@ -55,6 +55,15 @@ def pull_load_5min() -> pd.DataFrame:
     return c.get_load(C.START, end=pd.Timestamp(C.END) + pd.Timedelta(days=1))[["Interval Start", "Load"]]
 
 
+def pull_fuel_mix_5min() -> pd.DataFrame:
+    """CAISO Today's Outlook fuelsource.csv, 5-min. Fleet-total solar/wind; this is what CAISO's own
+    'net demand' curve subtracts. OASIS SLD_REN_FCST ACTUAL runs ~15% lower (narrower scope) and has
+    occasional hour dropouts, but it is the consistent pair for the OASIS DA renewables *forecast*."""
+    c = _caiso()
+    df = c.get_fuel_mix(C.START, end=pd.Timestamp(C.END) + pd.Timedelta(days=1))
+    return df[["Interval Start", "Solar", "Wind"]]
+
+
 def pull_load_fc_da() -> pd.DataFrame:
     c = _caiso()
     df = c.get_load_forecast_day_ahead(C.START, end=pd.Timestamp(C.END) + pd.Timedelta(days=1))
@@ -122,6 +131,7 @@ def pull_weather() -> pd.DataFrame:
 
 SOURCES = {
     "load_5min": pull_load_5min,
+    "fuel_mix_5min": pull_fuel_mix_5min,
     "load_fc_da": pull_load_fc_da,
     "lmp_da": pull_lmp_da,
     "lmp_rt15": pull_lmp_rt15,
@@ -181,18 +191,36 @@ def build_hourly(raw: dict[str, pd.DataFrame] | None = None) -> pd.DataFrame:
         s = rf[rf["Location"] == loc].sort_values("Publish Time").groupby("ts_utc")[["Solar MW", "Wind MW"]].last()
         out[f"solar_fc_{tag}_mw"] = s["Solar MW"]; out[f"wind_fc_{tag}_mw"] = s["Wind MW"]
 
+    # --- Outlook fleet-total renewables (same feed family as load_mw)
+    fm = raw["fuel_mix_5min"].copy(); fm["ts_utc"] = _utc_hour(fm["Interval Start"])
+    g = fm.groupby("ts_utc")[["Solar", "Wind"]]
+    ok = g.count()["Solar"] >= 6
+    out["solar_outlook_mw"] = g.mean()["Solar"].where(ok)
+    out["wind_outlook_mw"] = g.mean()["Wind"].where(ok)
+
     # --- weather (day-before forecast), wide: <var>_<point>
     w = raw["weather"].pivot(index="ts_utc", columns="point")
+    # Open-Meteo radiation/precipitation are *preceding-hour* means/sums (value at 12:00 covers 11:00-12:00).
+    # CAISO uses interval-start (12:00 covers 12:00-13:00). Shift those variables back one hour so every
+    # column in this frame means "the interval starting at ts_utc". Confirmed empirically: corr(solar,
+    # shortwave) peaks at a -1h shift before this fix and at 0 after.
+    preceding = [v for v in C.WEATHER_VARS if "radiation" in v or v == "precipitation"]
+    for v in preceding:
+        w[v] = w[v].shift(-1)
     w.columns = [f"{v}_{p}" for v, p in w.columns]
     out = out.join(w)
 
-    # --- known structural gap: Outlook feed omits the repeated 01:00 PST hour on fall-back days
+    # --- known structural gap: Outlook feeds omit the repeated 01:00 PST hour on fall-back days
     out["load_imputed"] = out["load_mw"].isna()
-    out["load_mw"] = out["load_mw"].interpolate(limit=1, limit_area="inside")
+    for col in ["load_mw", "solar_outlook_mw", "wind_outlook_mw"]:
+        out[col] = out[col].interpolate(limit=1, limit_area="inside")
     out["load_imputed"] &= out["load_mw"].notna()
 
     # --- first-class derived columns
-    out["net_load_mw"] = out["load_mw"] - out["solar_sys_mw"] - out["wind_sys_mw"]
+    # net load = CAISO's own "net demand" definition: Outlook demand minus Outlook fleet solar + wind
+    out["net_load_mw"] = out["load_mw"] - out["solar_outlook_mw"] - out["wind_outlook_mw"]
+    # OASIS-scope variant: the actual that pairs with the OASIS DA renewables forecast
+    out["net_load_oasis_mw"] = out["load_mw"] - out["solar_sys_mw"] - out["wind_sys_mw"]
     out["net_load_fc_caiso_mw"] = out["load_fc_caiso_mw"] - out["solar_fc_sys_mw"] - out["wind_fc_sys_mw"]
     out["da_rt_spread"] = out["lmp_da"] - out["lmp_rt"]
 

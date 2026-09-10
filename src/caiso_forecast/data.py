@@ -126,11 +126,14 @@ def pull_net_demand_5min() -> pd.DataFrame:
         if r.status_code != 200:
             log.warning("netdemand %s -> %s", d.date(), r.status_code); continue
         df = pd.read_csv(io.StringIO(r.text))
-        df = df[df["Time"].astype(str).str.match(r"^\d\d:\d\d$")]
+        df = df[df["Time"].astype(str).str.match(r"^[0-2]\d:[0-5]\d$")]
         ts = pd.to_datetime(f"{d:%Y-%m-%d} " + df["Time"])
-        # Outlook CSVs carry only the first (PDT) copy of the repeated 01:xx hour on fall-back days
-        ts = ts.dt.tz_localize(C.TZ, ambiguous=True, nonexistent="shift_forward")
-        frames.append(pd.DataFrame({"Interval Start": ts.values, "Net Demand": df["Net demand"].values}))
+        # Outlook CSVs: only the first (PDT) copy of the repeated 01:xx hour on fall-back days; twelve 02:xx
+        # rows that never happened (NaN) on spring-forward days -> NaT; a trailing duplicate "00:00" row.
+        ts = ts.dt.tz_localize(C.TZ, ambiguous=True, nonexistent="NaT")
+        day = pd.DataFrame({"Interval Start": ts, "Net Demand": df["Net demand"].astype(float).values})
+        day = day.dropna(subset=["Interval Start"]).drop_duplicates("Interval Start", keep="first")
+        frames.append(day)
     return pd.concat(frames, ignore_index=True)
 
 

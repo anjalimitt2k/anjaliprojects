@@ -35,3 +35,20 @@ The machine's network injects a self-signed CA; `truststore.inject_into_ssl()` i
 * **Outlook outages.** Four multi-hour gaps in the Outlook demand/fuel-mix feeds (2024-01-11 15:00–23:00, and 21:00–23:00 on 2024-06-27, 2024-08-29, 2024-09-24): 18 hours, left NaN on purpose. Only isolated single-hour gaps are interpolated (the three fall-back 01:00 PST hours), flagged `load_imputed`.
 * **Extremes are real, not glitches.** Min load 11,021 MW on Easter Sunday 2025-04-20 13:00 (12 clean 5-min intervals; spring-weekend behind-the-meter solar record). Max 47,325 MW on 2024-09-05 17:00 (September 2024 heat wave). Both are post-mortem candidates. One glitch hour of 338 MW "solar" at 2024-05-16 00:00 in the Outlook fuel mix; harmless.
 * **Cross-source checks all hold:** CAISO DA forecast MAPE 2.11% (worst hour-of-day 3.5%), DA/RT LMP corr 0.79 at lag 0 > 0.74 at lag 1, fleet-solar vs Fresno radiation forecast corr peaks at lag 0 (0.92) after the preceding-hour shift, Outlook vs OASIS solar corr 0.999, every CAISO DA forecast published ≥ 14.8 h before its target hour.
+
+## Net load: our definition vs CAISO's published "Net demand" (2026-09-09)
+
+`net_load_mw = load_mw − solar_outlook_mw − wind_outlook_mw`, all three from the same Outlook feed family
+(demand.csv + fuelsource.csv), same 5-min cadence, same footprint. CAISO's own Today's Outlook `netdemand.csv`
+does **not** equal that: at night the two agree within tens of MW, but at midday CAISO's is ~9–12 % of solar
+*higher* (≈2 GW on a 16–20 GW solar day). The Renewables-page Solar is identical to the fuel-source Solar, so the
+missing ~10 % is an undocumented scope difference in CAISO's solar term, not something we can reconstruct. We
+keep our transparent definition, carry CAISO's series as `net_demand_caiso_mw`, and the validator asserts the
+gap is solar-shaped and stable (corr > 0.995, night residual < 300 MW). Wherever a net-load number is quoted,
+say which definition. Under ours, the record low is −8,852 MW on Sat 2026-06-20 13:00 (load 16.0, solar 20.1,
+wind 4.7 GW; CAISO's series says −6.9 GW for the same hour). Easter 2025-04-20 holds the *load* record
+(11,021 MW) but its net-load minimum is −4.2 GW (CAISO: −2.2 GW). April 2025 had 30 of 31 days with a negative
+net-load minimum, deepest −7.0 GW on 04-23, so the negative tail is smooth, not an outlier.
+
+Bounds now enforced by the gate: load > 9 GW, net load > −12 GW, solar < 26 GW, wind < 10 GW (observed max 8.25 GW;
+the "wind rarely exceeds 5 GW" rule of thumb is out of date for this window).

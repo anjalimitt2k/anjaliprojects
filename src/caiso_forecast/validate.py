@@ -87,6 +87,9 @@ def run(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     night = df[df.hour_local.isin([0, 1, 2, 3])]
     n_bad = int((night.solar_outlook_mw.abs() > 500).sum())
     check(n_bad <= 3, f"night solar ~0: {n_bad} hours with |solar| > 500 MW at 00-03h (|max| {night.solar_outlook_mw.abs().max():.0f}; small negatives are station load)")
+    check(df.net_load_mw.dropna().min() > -12_000, f"net load above plausible floor -12 GW (min {df.net_load_mw.min():.0f} at {df.loc[df.net_load_mw.idxmin(), 'ts_local']})")
+    check(df.solar_outlook_mw.dropna().max() < 26_000, f"fleet solar below 26 GW capability ceiling (max {df.solar_outlook_mw.max():.0f})")
+    check(df.wind_outlook_mw.dropna().max() < 10_000, f"wind below 10 GW (max {df.wind_outlook_mw.max():.0f})")
     check(df.lmp_da.dropna().between(-200, 3000).all(), f"DA LMP in [-200, 3000] (min {df.lmp_da.min():.1f}, max {df.lmp_da.max():.1f})")
     check(df.lmp_rt.dropna().between(-500, 3000).all(), f"RT LMP in [-500, 3000] (min {df.lmp_rt.min():.1f}, max {df.lmp_rt.max():.1f})")
     check(df.temperature_2m_la.dropna().between(-5, 50).all(), f"LA temperature in [-5, 50] C (min {df.temperature_2m_la.min():.1f}, max {df.temperature_2m_la.max():.1f})")
@@ -112,6 +115,16 @@ def run(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     check(oc > 0.98, f"Outlook fleet solar vs OASIS solar actual correlation {oc:.3f} > 0.98 (same timing, different scope)")
     ratio = (df.solar_sys_mw.sum() / df.solar_outlook_mw.sum())
     lines.append(f"- OASIS solar / Outlook solar energy ratio = {ratio:.3f} (OASIS scope is narrower; document, don't 'fix')")
+    if "net_demand_caiso_mw" in df:
+        nc = df.net_load_mw.corr(df.net_demand_caiso_mw)
+        check(nc > 0.995, f"our net load vs CAISO's published net demand: corr {nc:.4f} > 0.995 (timing identical)")
+        mid = df[df.solar_outlook_mw > 5000]
+        ratio = ((mid.net_demand_caiso_mw - mid.net_load_mw) / mid.solar_outlook_mw)
+        lines.append(f"- CAISO net demand minus ours, as a share of solar (solar>5GW hours): median {ratio.median():.3f}, IQR {ratio.quantile(.25):.3f}-{ratio.quantile(.75):.3f}")
+        check(0.03 < ratio.median() < 0.20, "CAISO subtracts ~9-12% less solar than its published Solar column (documented scope gap; stable, not a bug)")
+        night = df[df.solar_outlook_mw < 200]
+        nr = (night.net_demand_caiso_mw - night.net_load_mw).abs().median()
+        check(nr < 300, f"at night our net load and CAISO's agree within {nr:.0f} MW (so the gap is solar-scope only)")
     solar_peak_hr = df.groupby("hour_local").solar_outlook_mw.mean().idxmax()
     check(10 <= solar_peak_hr <= 14, f"mean fleet solar peaks at local hour {solar_peak_hr} (expect 10–14; the fleet plateaus 10–14)")
     nl_min_hr = df.groupby("hour_local").net_load_mw.mean().idxmin()

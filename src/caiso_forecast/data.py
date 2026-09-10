@@ -10,6 +10,7 @@ Design rules (see docs/data_notes.md for the *why* behind each):
 """
 from __future__ import annotations
 
+import io
 import logging
 import time
 
@@ -103,6 +104,36 @@ def pull_fuel_mix_5min() -> pd.DataFrame:
     return df[["Interval Start", "Solar", "Wind"]]
 
 
+def pull_net_demand_5min() -> pd.DataFrame:
+    """CAISO Today's Outlook netdemand.csv, 5-min: CAISO's *own* published net demand.
+    It is NOT reproducible as demand - Solar - Wind from CAISO's published supply columns: its solar term
+    is ~9-12% smaller than both the fuel-source and renewables-page Solar series (undocumented scope).
+    Kept as `net_demand_caiso_mw` so the project's transparent definition can be reconciled to it."""
+    import truststore; truststore.inject_into_ssl()
+    frames = []
+    for d in pd.date_range(C.START, C.END, freq="D"):
+        url = f"https://www.caiso.com/outlook/history/{d:%Y%m%d}/netdemand.csv"
+        for attempt in range(4):
+            try:
+                r = requests.get(url, timeout=60)
+                if r.status_code == 200:
+                    break
+            except requests.RequestException:
+                pass
+            time.sleep(5 * (attempt + 1))
+        else:
+            log.warning("netdemand %s unavailable", d.date()); continue
+        if r.status_code != 200:
+            log.warning("netdemand %s -> %s", d.date(), r.status_code); continue
+        df = pd.read_csv(io.StringIO(r.text))
+        df = df[df["Time"].astype(str).str.match(r"^\d\d:\d\d$")]
+        ts = pd.to_datetime(f"{d:%Y-%m-%d} " + df["Time"])
+        # Outlook CSVs carry only the first (PDT) copy of the repeated 01:xx hour on fall-back days
+        ts = ts.dt.tz_localize(C.TZ, ambiguous=True, nonexistent="shift_forward")
+        frames.append(pd.DataFrame({"Interval Start": ts.values, "Net Demand": df["Net demand"].values}))
+    return pd.concat(frames, ignore_index=True)
+
+
 def pull_load_fc_da() -> pd.DataFrame:
     c = _caiso()
     def f(a, b):
@@ -178,6 +209,7 @@ def pull_weather() -> pd.DataFrame:
 SOURCES = {
     "load_5min": pull_load_5min,
     "fuel_mix_5min": pull_fuel_mix_5min,
+    "net_demand_5min": pull_net_demand_5min,
     "load_fc_da": pull_load_fc_da,
     "lmp_da": pull_lmp_da,
     "lmp_rt15": pull_lmp_rt15,
@@ -243,6 +275,11 @@ def build_hourly(raw: dict[str, pd.DataFrame] | None = None) -> pd.DataFrame:
     ok = g.count()["Solar"] >= 6
     out["solar_outlook_mw"] = g.mean()["Solar"].where(ok)
     out["wind_outlook_mw"] = g.mean()["Wind"].where(ok)
+
+    # --- CAISO's own published net demand (see pull_net_demand_5min for why it differs from ours)
+    nd = raw["net_demand_5min"].copy(); nd["ts_utc"] = _utc_hour(nd["Interval Start"])
+    g = nd.groupby("ts_utc")["Net Demand"]
+    out["net_demand_caiso_mw"] = g.mean().where(g.count() >= 6)
 
     # --- weather (day-before forecast), wide: <var>_<point>
     w = raw["weather"].pivot(index="ts_utc", columns="point")

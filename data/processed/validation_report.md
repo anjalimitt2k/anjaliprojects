@@ -81,6 +81,9 @@ Window (local): 2023-07-01 → 2026-09-06  | zone SP15, hub TH_SP15_GEN-APND
 - [PASS] load in [9, 55] GW (min 11021, max 47325; ~11 GW spring-Sunday-midday lows are real BTM-solar records)
 - [PASS] fleet solar peaks > 10 GW (max 23780)
 - [PASS] night solar ~0: 0 hours with |solar| > 500 MW at 00-03h (|max| 338; small negatives are station load)
+- [PASS] net load above plausible floor -12 GW (min -8852 at 2026-06-20 13:00:00-07:00)
+- [PASS] fleet solar below 26 GW capability ceiling (max 23780)
+- [PASS] wind below 10 GW (max 8254)
 - [PASS] DA LMP in [-200, 3000] (min -67.1, max 1247.6)
 - [PASS] RT LMP in [-500, 3000] (min -85.4, max 1982.5)
 - [PASS] LA temperature in [-5, 50] C (min 3.3, max 40.9)
@@ -98,6 +101,10 @@ Window (local): 2023-07-01 → 2026-09-06  | zone SP15, hub TH_SP15_GEN-APND
 - [PASS] solar vs forecast radiation peaks at lag 0 (>0.9) → weather hour-aligned after preceding-hour shift
 - [PASS] Outlook fleet solar vs OASIS solar actual correlation 0.999 > 0.98 (same timing, different scope)
 - OASIS solar / Outlook solar energy ratio = 0.833 (OASIS scope is narrower; document, don't 'fix')
+- [PASS] our net load vs CAISO's published net demand: corr 0.9990 > 0.995 (timing identical)
+- CAISO net demand minus ours, as a share of solar (solar>5GW hours): median 0.085, IQR 0.070-0.096
+- [PASS] CAISO subtracts ~9-12% less solar than its published Solar column (documented scope gap; stable, not a bug)
+- [PASS] at night our net load and CAISO's agree within 26 MW (so the gap is solar-scope only)
 - [PASS] mean fleet solar peaks at local hour 11 (expect 10–14; the fleet plateaus 10–14)
 - [PASS] duck-curve belly: mean net load minimum at local hour 12 (expect 10–15)
 - [PASS] summer load peaks at local hour 18 (expect 16–20)
@@ -122,4 +129,4 @@ Window (local): 2023-07-01 → 2026-09-06  | zone SP15, hub TH_SP15_GEN-APND
 | temperature_2m_la        |   27444 |    18.3 |     3.3 |    17.6 |    40.9 |
 | shortwave_radiation_fres |   23084 |   237.6 |     0   |     0   |  1055   |
 
-**0 FAIL / 58 PASS**
+**0 FAIL / 64 PASS**

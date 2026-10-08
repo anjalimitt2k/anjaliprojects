@@ -29,3 +29,13 @@ WEATHER_FULL_FROM = "2024-01-20"
 WEATHER_VARS = ["temperature_2m", "apparent_temperature", "relative_humidity_2m", "dew_point_2m",
                 "wind_speed_10m", "wind_gusts_10m", "cloud_cover", "shortwave_radiation",
                 "direct_radiation", "precipitation"]
+
+# ---------------------------------------------------------------- Phase 2+ decisions (locked 2026-10-08)
+# Forecast origin: 09:00 local on D-1, ten minutes before CAISO publishes its DA forecast (~09:10).
+# Every feature must be computable from data available at this instant.
+ORIGIN_HOUR_LOCAL = 9
+# Walk-forward window: train from WEATHER_FULL_FROM; first forecast origin -> last operating day.
+BACKTEST_FIRST_TARGET = "2024-07-01"   # includes the Sep-2024 heat wave; 2025 had zero severe DA hours
+BACKTEST_LAST_TARGET = END
+# Spike definition (set from EDA quantiles of DA LMP over the full window; see docs/eda.md):
+SPIKE_Q = {"spike": 0.95, "severe": 0.99}

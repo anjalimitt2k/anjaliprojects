@@ -137,6 +137,16 @@ def pull_net_demand_5min() -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def pull_load_sld_actual() -> pd.DataFrame:
+    """OASIS SLD_FCST market_run_id=ACTUAL for CA ISO-TAC: the *wrong* basis for scoring CAISO's forecast
+    (runs ~6.5 GW high midday). Kept only so the cost of the wrong basis is a number in the notes."""
+    c = _caiso()
+    def f(a, b):
+        df = c.get_load_hourly(a, end=b)
+        return df[df["TAC Area Name"] == C.LOAD_AREA][["Interval Start", "Load"]]
+    return _oasis_chunked("load_sld_actual", f, expect_per_day=24)
+
+
 def pull_load_fc_da() -> pd.DataFrame:
     c = _caiso()
     def f(a, b):
@@ -177,11 +187,13 @@ def pull_ren_fc_dam() -> pd.DataFrame:
     return _oasis_chunked("ren_fc_dam", f, expect_per_day=24)
 
 
-def pull_weather() -> pd.DataFrame:
-    """Open-Meteo previous-runs API, UTC, one row per (point, hour). Chunked by calendar year."""
+def pull_weather(lead_days: int = 1) -> pd.DataFrame:
+    """Open-Meteo previous-runs API, UTC, one row per (point, hour). Chunked by calendar year.
+    `<var>_previous_dayN` = the prediction made exactly N*24 h before the valid hour (per Open-Meteo docs).
+    With a 09:00 D-1 origin, day1 is only honest for target hours 00-09 of D; later hours need day2."""
     import truststore; truststore.inject_into_ssl()
     url = "https://previous-runs-api.open-meteo.com/v1/forecast"
-    hourly = ",".join(f"{v}_previous_day1" for v in C.WEATHER_VARS)
+    hourly = ",".join(f"{v}_previous_day{lead_days}" for v in C.WEATHER_VARS)
     frames = []
     # pad one day each side: local window edges fall inside UTC days
     start = pd.Timestamp(C.START) - pd.Timedelta(days=1)
@@ -201,7 +213,7 @@ def pull_weather() -> pd.DataFrame:
                 time.sleep(10 * (attempt + 1))
             r.raise_for_status()
             h = pd.DataFrame(r.json()["hourly"])
-            h.columns = [c_.replace("_previous_day1", "") for c_ in h.columns]
+            h.columns = [c_.replace(f"_previous_day{lead_days}", "") for c_ in h.columns]
             h["ts_utc"] = pd.to_datetime(h.pop("time"), utc=True)
             h["point"] = name
             frames.append(h)
@@ -209,16 +221,43 @@ def pull_weather() -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def pull_weather_obs() -> pd.DataFrame:
+    """Open-Meteo archive API (ERA5 reanalysis = observation-grade). LEAKAGE if used as a feature; pulled only
+    for the ablation that prices what honest forecast inputs cost."""
+    import truststore; truststore.inject_into_ssl()
+    url = "https://archive-api.open-meteo.com/v1/archive"
+    hourly = ",".join(C.WEATHER_VARS)
+    frames = []
+    start = pd.Timestamp(C.START) - pd.Timedelta(days=1)
+    end = pd.Timestamp(C.END) + pd.Timedelta(days=2)
+    for name, (lat, lon) in C.WEATHER_POINTS.items():
+        p = dict(latitude=lat, longitude=lon, start_date=start.strftime("%Y-%m-%d"), end_date=end.strftime("%Y-%m-%d"),
+                 hourly=hourly, timezone="UTC", wind_speed_unit="ms")
+        for attempt in range(5):
+            r = requests.get(url, params=p, timeout=180)
+            if r.status_code == 200:
+                break
+            log.warning("open-meteo archive %s -> %s %s", name, r.status_code, r.text[:120]); time.sleep(10 * (attempt + 1))
+        r.raise_for_status()
+        h = pd.DataFrame(r.json()["hourly"])
+        h["ts_utc"] = pd.to_datetime(h.pop("time"), utc=True); h["point"] = name
+        frames.append(h); time.sleep(1)
+    return pd.concat(frames, ignore_index=True)
+
+
 SOURCES = {
     "load_5min": pull_load_5min,
     "fuel_mix_5min": pull_fuel_mix_5min,
     "net_demand_5min": pull_net_demand_5min,
+    "load_sld_actual": pull_load_sld_actual,
     "load_fc_da": pull_load_fc_da,
     "lmp_da": pull_lmp_da,
     "lmp_rt15": pull_lmp_rt15,
     "ren_hourly": pull_ren_hourly,
     "ren_fc_dam": pull_ren_fc_dam,
     "weather": pull_weather,
+    "weather_d2": lambda: pull_weather(lead_days=2),
+    "weather_obs": pull_weather_obs,
 }
 
 
@@ -243,6 +282,10 @@ def build_hourly(raw: dict[str, pd.DataFrame] | None = None) -> pd.DataFrame:
     load = g.mean().where(g.count() >= 6)
     out["load_mw"] = load
     out["load_n5min"] = g.count()
+
+    if "load_sld_actual" in raw:
+        sl = raw["load_sld_actual"].copy(); sl["ts_utc"] = _utc_hour(sl["Interval Start"])
+        out["load_sld_actual_mw"] = sl.groupby("ts_utc")["Load"].mean()
 
     # --- CAISO official day-ahead load forecast (publish time kept: proves it was day-ahead)
     f = raw["load_fc_da"].copy()
@@ -295,6 +338,14 @@ def build_hourly(raw: dict[str, pd.DataFrame] | None = None) -> pd.DataFrame:
         w[v] = w[v].shift(-1)
     w.columns = [f"{v}_{p}" for v, p in w.columns]
     out = out.join(w)
+    # variants for the leakage ablation: *_d2 (48 h lead), *_obs (ERA5 observed; never a feature)
+    for key, suffix in [("weather_d2", "_d2"), ("weather_obs", "_obs")]:
+        if key in raw:
+            w2 = raw[key].pivot(index="ts_utc", columns="point")
+            for v in preceding:
+                w2[v] = w2[v].shift(-1)
+            w2.columns = [f"{v}_{p}{suffix}" for v, p in w2.columns]
+            out = out.join(w2)
 
     # --- impute *isolated* single-hour gaps only (valid neighbours on both sides). The known case is the
     # repeated 01:00 PST hour that Outlook feeds omit on fall-back days. Multi-hour Outlook outages

@@ -379,3 +379,57 @@ def build_hourly(raw: dict[str, pd.DataFrame] | None = None) -> pd.DataFrame:
 def save_hourly(df: pd.DataFrame) -> None:
     C.PROCESSED.mkdir(parents=True, exist_ok=True)
     df.to_parquet(C.PROCESSED / "hourly.parquet", index=False)
+
+
+# ---------------------------------------------------------------- incremental updates (Phase 10)
+_KEYS = {"load_5min": ["Interval Start"], "fuel_mix_5min": ["Interval Start"], "net_demand_5min": ["Interval Start"],
+         "load_sld_actual": ["Interval Start"], "load_fc_da": ["Interval Start"], "lmp_da": ["Interval Start"],
+         "lmp_rt15": ["Interval Start"], "ren_hourly": ["Interval Start", "Location"], "ren_fc_dam": ["Interval Start", "Location"],
+         "weather": ["ts_utc", "point"], "weather_d2": ["ts_utc", "point"], "weather_obs": ["ts_utc", "point"]}
+
+
+def update_sources(through: str, names: list[str] | None = None, overlap_days: int = 3) -> None:
+    """Pull only the tail of each cached source: from (cached max date − overlap) to `through` (local date),
+    then de-duplicate on the key and re-save. Re-pulling the overlap picks up late OASIS revisions."""
+    import contextlib
+    names = names or list(SOURCES)
+    for name in names:
+        path = C.RAW / f"{name}.parquet"
+        if not path.exists():
+            log.warning("no cache for %s; run the full pull first", name); continue
+        old = pd.read_parquet(path)
+        tcol = _KEYS[name][0]
+        last = pd.to_datetime(old[tcol]).max()
+        last_local = last.tz_convert(C.TZ) if last.tzinfo else last
+        start = (last_local - pd.Timedelta(days=overlap_days)).strftime("%Y-%m-%d")
+        if pd.Timestamp(start) > pd.Timestamp(through):
+            continue
+        saved_start, saved_end = C.START, C.END
+        try:
+            C.START, C.END = start, through
+            new = SOURCES[name]()
+        except Exception as e:  # noqa: BLE001
+            log.warning("update %s failed: %s", name, str(e)[:160]); continue
+        finally:
+            C.START, C.END = saved_start, saved_end
+        both = pd.concat([old, new], ignore_index=True).drop_duplicates(_KEYS[name], keep="last").sort_values(_KEYS[name])
+        both.to_parquet(path, index=False)
+        log.info("updated %s: +%d rows, now through %s", name, len(both) - len(old), pd.to_datetime(both[tcol]).max())
+
+
+def fetch_weather_forecast(target_date: str) -> pd.DataFrame:
+    """Live only: Open-Meteo forecast API for the target day (what the forecast says *now*). Returned in the same
+    long shape as the previous-runs sources so it can be slotted in for the target day's rows."""
+    import truststore; truststore.inject_into_ssl()
+    url = "https://api.open-meteo.com/v1/forecast"
+    frames = []
+    for name, (lat, lon) in C.WEATHER_POINTS.items():
+        p = dict(latitude=lat, longitude=lon, start_date=target_date, end_date=target_date, hourly=",".join(C.WEATHER_VARS),
+                 timezone="UTC", wind_speed_unit="ms", models="best_match")
+        # UTC day != local day: pull the UTC days covering the local target day
+        d0 = pd.Timestamp(target_date, tz=C.TZ).tz_convert("UTC"); d1 = (pd.Timestamp(target_date, tz=C.TZ) + pd.Timedelta(days=1)).tz_convert("UTC")
+        p["start_date"], p["end_date"] = d0.strftime("%Y-%m-%d"), d1.strftime("%Y-%m-%d")
+        r = requests.get(url, params=p, timeout=60); r.raise_for_status()
+        h = pd.DataFrame(r.json()["hourly"]); h["ts_utc"] = pd.to_datetime(h.pop("time"), utc=True); h["point"] = name
+        frames.append(h)
+    return pd.concat(frames, ignore_index=True)

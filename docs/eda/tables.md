@@ -20,6 +20,11 @@
 | spike (≥p95)  |    1117 |           81   |           75.9 |   29541   |       25351.2 |                4443.3 |       -0.2 |    1955.8 |            23.6 |                30.4 |                  3   |
 | severe (≥p99) |     280 |          179.4 |          135   |   37947.8 |       31928.7 |                9292   |      398.4 |    2747.8 |            27.6 |                39   |                  3.4 |
 
+## Cost of the wrong basis
+
+CAISO DA forecast MAPE vs Outlook demand: **2.11%**; vs OASIS SLD_FCST 'ACTUAL': **6.70%**. Same forecast, different actual.
+
+
 ## Post-mortem shortlist
 
 - **heat-wave peak** — 2024-09-05 (Thursday): load 25826–47325 MW, net load min 13504 MW, DA LMP max $614, RT LMP max $151 (15-min max $328), CAISO load MAPE that day 3.6%

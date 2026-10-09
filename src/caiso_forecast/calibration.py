@@ -18,8 +18,33 @@ def pinball(y, q, a):
     return float(np.mean(np.maximum(a * d, (a - 1) * d)))
 
 
+def conformalize(df: pd.DataFrame, m: str, tgt: str, window_days: int = 60) -> pd.DataFrame:
+    """Split-conformal bands, per hour of day: for each day, take the empirical 10th/90th percentiles of (actual − p50)
+    at each hour over the previous `window_days` graded days (strictly before the origin) and add them to p50. Leak-free: uses only
+    forecasts already issued and actuals already observed by the origin."""
+    d = df[["ts_utc", "date_local", "hour_local", tgt, f"{m}__{tgt}__p50" if f"{m}__{tgt}__p50" in df else f"{m}__{tgt}"]].copy()
+    d.columns = ["ts_utc", "date", "hour", "y", "p50"]
+    d["res"] = d.y - d.p50
+    days = sorted(d.date.unique()); lo = pd.Series(np.nan, index=d.index); hi = pd.Series(np.nan, index=d.index)
+    by_day = {k: g for k, g in d.groupby("date")}
+    for i, day in enumerate(days):
+        past = days[max(0, i - window_days - 1):i - 1]            # ends at D-2 (complete at the origin)
+        if len(past) < 20:
+            continue
+        r = pd.concat([by_day[k][["hour", "res"]] for k in past])
+        qh = r.groupby("hour").res.quantile([0.1, 0.9]).unstack()     # per-hour-of-day residual quantiles
+        cur = by_day[day]
+        lo[cur.index] = cur.p50 + cur.hour.map(qh[0.1]).values; hi[cur.index] = cur.p50 + cur.hour.map(qh[0.9]).values
+    out = df.copy(); out[f"{m}_conf__{tgt}__p10"] = lo; out[f"{m}_conf__{tgt}__p90"] = hi; out[f"{m}_conf__{tgt}"] = d.p50
+    return out
+
+
 def main():
     df = wide("strict")
+    for tgt in ["load_mw", "lmp_rt"]:
+        if "gbm__load_mw" in df:
+            df = conformalize(df, "gbm", tgt)
+    LABELS["gbm_conf"] = "LightGBM + 60-day conformal bands"
     models = sorted({c.split("__")[0] for c in df.columns if c.endswith("__p10")})
     L = ["# Phase 7 — intervals & calibration (P10–P90, walk-forward)\n", "Target coverage is 80 %. PIT bins expected 10 / 40 / 40 / 10 %.\n"]
     for tgt in ["load_mw", "lmp_rt"]:

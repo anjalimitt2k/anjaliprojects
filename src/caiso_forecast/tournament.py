@@ -24,14 +24,14 @@ def wide(variant="strict") -> pd.DataFrame:
     df = df.merge(base, on="ts_utc")
     f = load_forecasts(variant)
     for (m, t), g in f.groupby(["model", "target"]):
-        df = df.merge(g[["ts_utc", "yhat", "p10", "p90"]].rename(columns={"yhat": f"{m}__{t}", "p10": f"{m}__{t}__p10", "p90": f"{m}__{t}__p90"}), on="ts_utc", how="left")
+        df = df.merge(g[["ts_utc", "yhat", "p10", "p50", "p90"]].rename(columns={"yhat": f"{m}__{t}", "p10": f"{m}__{t}__p10", "p50": f"{m}__{t}__p50", "p90": f"{m}__{t}__p90"}), on="ts_utc", how="left")
     df = M.add_regimes(df, M.spike_thresholds(df))
     return df[(df.date_local >= C.BACKTEST_FIRST_TARGET) & (df.date_local <= C.BACKTEST_LAST_TARGET)].reset_index(drop=True)
 
 
 def main():
     df = wide("strict")
-    models_here = sorted({c.split("__")[0] for c in df.columns if "__" in c and not c.endswith(("p10", "p90"))})
+    models_here = sorted({c.split("__")[0] for c in df.columns if "__" in c and not c.endswith(("p10", "p50", "p90"))})
     allm, L = [], [f"# Tournament scoreboard — walk-forward {C.BACKTEST_FIRST_TARGET} → {C.BACKTEST_LAST_TARGET}\n",
                    "Identical rows, identical splits for every entrant. Spike/severe = hours whose actual DA LMP ≥ p95 / p99 of the full window. "
                    "Weather features: strict variant (no run newer than the 09:00 D-1 origin).\n"]

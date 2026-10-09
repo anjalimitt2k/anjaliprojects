@@ -74,17 +74,17 @@ def main():
         for tau in [0, 5, 10, 15, 20, 30, 40, 60]:
             on = R[f"{name}__spread"] >= tau
             s = R[name].where(on, 0.0)
-            sweep.append({"entrant": name, "min spread $/MWh": tau, "days traded": int(on.sum()), "revenue $": round(s.sum()), "p5 day $": round(s.quantile(.05), 1), "std day $": round(s.std(), 1)})
+            sweep.append({"entrant": name, "min spread $/MWh": tau, "days traded": int(on.sum()), "revenue $": round(s.sum()), "losses on losing days $": round(s[s < 0].sum(), 1), "losing days": int((s < 0).sum()), "std day $": round(s.std(), 1)})
     S = pd.DataFrame(sweep)
-    L.append("\n\n## Risk-tolerance sweep (trade only if the forecast's best-4-minus-worst-4 spread ≥ threshold)\n")
+    L.append("\n\n## Risk-tolerance sweep (trade only if the forecast's best-4-minus-worst-4 spread ≥ threshold τ)\n")
     L.append(S.to_markdown(index=False))
     fig, ax = plt.subplots(figsize=(7.5, 4.6))
     for (name, g), c in zip(S.groupby("entrant", sort=False), PAL):
-        ax.plot(g["p5 day $"], g["revenue $"], "o-", color=c, lw=2, ms=5, label=name)
+        ax.plot(-g["losses on losing days $"], g["revenue $"], "o-", color=c, lw=2, ms=5, label=name)
         for _, r in g.iloc[[0, -1]].iterrows():
-            ax.annotate(f"τ={r['min spread $/MWh']:.0f}", (r["p5 day $"], r["revenue $"]), xytext=(4, 4), textcoords="offset points", fontsize=7, color=INK2)
+            ax.annotate(f"τ={r['min spread $/MWh']:.0f}", (-r["losses on losing days $"], r["revenue $"]), xytext=(4, 4), textcoords="offset points", fontsize=7, color=INK2)
     ax.axhline(perf, color=INK2, lw=1, ls=":"); ax.annotate("perfect foresight", (ax.get_xlim()[0], perf), xytext=(4, 4), textcoords="offset points", fontsize=8, color=INK2)
-    ax.set_xlabel("downside: 5th-percentile daily revenue ($, higher = safer)"); ax.set_ylabel("total revenue over backtest ($)")
+    ax.set_xlabel("downside: total losses on losing days ($, lower = safer)"); ax.set_ylabel("total revenue over backtest ($)")
     ax.set_title("Revenue / risk frontier by forecast source", loc="left", fontweight="semibold"); ax.legend(fontsize=8)
     fig.tight_layout(); fig.savefig(OUT / "fig7_battery_frontier.png", dpi=150); plt.close(fig)
     (C.ROOT / "docs" / "battery.md").write_text("\n".join(L)); print("\n".join(L))

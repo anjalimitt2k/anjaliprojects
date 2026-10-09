@@ -122,7 +122,9 @@ def main():
         axes[0].annotate(str(n), (x_, y_), xytext=(5, -10), textcoords="offset points", fontsize=8, color=INK2)
     axes[0].set_xlabel("predicted P(evening spike)"); axes[0].set_ylabel("observed rate"); axes[0].set_title("Reliability (n per bin)")
     axes[1].plot(T.index, T.p, color=PAL[0], lw=1, label="P(spike)"); axes[1].scatter(T.index[y == 1], np.ones(int(y.sum())) * 1.02, color=PAL[1], s=12, label="spike days")
-    axes[1].set_ylim(0, 1.08); axes[1].set_title("Daily spike probability vs realised spike days"); axes[1].legend(fontsize=8, loc="upper right")
+    import matplotlib.dates as mdates
+    axes[1].xaxis.set_major_locator(mdates.MonthLocator(interval=3)); axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%b %y"))
+    axes[1].set_ylim(0, 1.08); axes[1].set_title("Daily spike probability vs realised spike days"); axes[1].legend(fontsize=8, loc="center right")
     fig.suptitle("Spike layer: calibrated probabilities, and where the positives actually were", x=0.01, ha="left", fontsize=13, fontweight="semibold")
     fig.tight_layout(rect=(0, 0, 1, 0.92)); fig.savefig(OUT / "fig6_spike_classifier.png", dpi=150); plt.close(fig)
     (C.ROOT / "docs" / "spike.md").write_text("\n".join(L)); print("\n".join(L))

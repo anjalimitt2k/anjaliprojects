@@ -145,15 +145,16 @@ def grade(D: pd.Timestamp, df: pd.DataFrame) -> dict | None:
 def briefing(f: dict, df: pd.DataFrame) -> str:
     """Plain-English grid briefing generated ONLY from the forecast file's numbers (no LLM, no outside facts)."""
     g = f["models"]["gbm"]; hl = f["hour_local"]
-    load, p10, p90 = np.array(g["load_mw"]["yhat"]), np.array(g["load_mw"]["p10"]), np.array(g["load_mw"]["p90"])
-    rt, rt90 = np.array(g["lmp_rt"]["yhat"]), np.array(g["lmp_rt"]["p90"])
+    # narrative uses the quantile models (P50/P10/P90): the L2 mean is pulled above P90 on skewed price days
+    load, p10, p90 = np.array(g["load_mw"]["p50"]), np.array(g["load_mw"]["p10"]), np.array(g["load_mw"]["p90"])
+    rt, rt90, rt_mean = np.array(g["lmp_rt"]["p50"]), np.array(g["lmp_rt"]["p90"]), np.array(g["lmp_rt"]["yhat"])
     pk = int(np.argmax(load)); pr = int(np.argmax(rt))
     ramp = load[np.isin(hl, [17, 18, 19, 20])].max() - load[np.isin(hl, [13, 14, 15])].min()
     width_ev = (p90 - p10)[np.isin(hl, [17, 18, 19, 20, 21])].mean(); width_mid = (p90 - p10)[np.isin(hl, [10, 11, 12, 13, 14, 15])].mean()
     L = [f"**Grid briefing for {f['target_date']}** (issued {f['issued_at_utc']} UTC, model trained through {f['train_through']}).",
          f"Forecast peak load {load[pk]:,.0f} MW at {hl[pk]:02d}:00 local (P10–P90 {p10[pk]:,.0f}–{p90[pk]:,.0f}); "
          f"overnight minimum {load.min():,.0f} MW. Afternoon-to-evening rise about {ramp:,.0f} MW.",
-         f"Real-time SP15 price expected to peak near ${rt[pr]:.0f}/MWh at {hl[pr]:02d}:00 (P90 ${rt90[pr]:.0f}); daily mean ${rt.mean():.0f}.",
+         f"Real-time SP15 price: median peak ${rt[pr]:.0f}/MWh at {hl[pr]:02d}:00, P90 ${rt90[pr]:.0f} (mean-model peak ${rt_mean.max():.0f}, which sits above P90 when the day is skewed); daily median ${np.median(rt):.0f}.",
          f"Uncertainty band is {'wider' if width_ev > width_mid else 'narrower'} on the evening ramp ({width_ev:,.0f} MW) than at midday ({width_mid:,.0f} MW)."]
     if "chronos" in f["models"] and "load_mw" in f["models"]["chronos"]:
         c = np.array(f["models"]["chronos"]["load_mw"]["yhat"]); L.append(f"Chronos zero-shot peak {c.max():,.0f} MW ({'above' if c.max() > load[pk] else 'below'} ours by {abs(c.max()-load[pk]):,.0f} MW).")

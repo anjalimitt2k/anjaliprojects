@@ -31,6 +31,19 @@ def _caiso():
     return gridstatus.CAISO()
 
 
+def _with_timeout(fn, seconds: float):
+    """Run fn in a worker thread and give up after `seconds` (the thread is abandoned; a fresh request is made)."""
+    import concurrent.futures as cf
+    ex = cf.ThreadPoolExecutor(max_workers=1)
+    fut = ex.submit(fn)
+    try:
+        return fut.result(timeout=seconds)
+    except cf.TimeoutError:
+        raise TimeoutError(f"no answer in {seconds:.0f}s")
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+
+
 def _oasis_chunked(name: str, fetch, days: int = 28, expect_per_day: int | None = None) -> pd.DataFrame:
     """Pull an OASIS series in local-midnight-aligned chunks of <= `days`, with retries.
 
@@ -48,12 +61,12 @@ def _oasis_chunked(name: str, fetch, days: int = 28, expect_per_day: int | None 
             continue
         for attempt in range(5):
             try:
-                df = fetch(a, b)
+                df = _with_timeout(lambda: fetch(a, b), seconds=150)   # OASIS sometimes never answers; socket timeouts don't reach gridstatus
                 if df is None or len(df) == 0:
                     raise RuntimeError("empty result")
                 break
             except Exception as e:  # noqa: BLE001
-                log.warning("%s chunk %s..%s attempt %d failed: %s", name, a.date(), b.date(), attempt + 1, str(e)[:120])
+                log.warning("%s chunk %s..%s attempt %d failed: %s", name, a.date(), b.date(), attempt + 1, str(e)[:120] or type(e).__name__)
                 time.sleep(15 * (attempt + 1))
         else:
             raise RuntimeError(f"{name}: chunk {a.date()}..{b.date()} failed 5 times")

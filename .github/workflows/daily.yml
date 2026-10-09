@@ -11,13 +11,13 @@ concurrency: daily
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 170
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Restore raw data cache (rolls forward day by day)
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: data/raw
           key: raw-${{ github.run_id }}
@@ -28,6 +28,12 @@ jobs:
       - name: Forecast tomorrow, grade yesterday, render site
         env: { PYTHONPATH: src }
         run: python -m caiso_forecast.live
+      - name: Save raw data cache (even if a later step failed, so partial pulls are kept)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/raw
+          key: raw-${{ github.run_id }}
       - name: Commit the record
         run: |
           git config user.name "forecast-bot" && git config user.email "bot@users.noreply.github.com"

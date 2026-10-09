@@ -81,6 +81,22 @@ def _oasis_chunked(name: str, fetch, days: int = 28, expect_per_day: int | None 
     return out.drop_duplicates()
 
 
+def _get_retry(url: str, params: dict, label: str, attempts: int = 6, timeout: int = 180):
+    """GET with retries on *both* bad status and transport errors (timeouts, resets)."""
+    last = None
+    for attempt in range(attempts):
+        try:
+            r = requests.get(url, params=params, timeout=timeout)
+            if r.status_code == 200:
+                return r
+            last = f"{r.status_code} {r.text[:120]}"
+        except requests.RequestException as e:
+            last = f"{type(e).__name__}: {str(e)[:120]}"
+        log.warning("%s attempt %d failed: %s", label, attempt + 1, last)
+        time.sleep(15 * (attempt + 1))
+    raise RuntimeError(f"{label}: giving up after {attempts} attempts ({last})")
+
+
 def _cached(name: str, fn):
     path = C.RAW / f"{name}.parquet"
     if path.exists():
@@ -218,13 +234,7 @@ def pull_weather(lead_days: int = 1) -> pd.DataFrame:
                 continue
             p = dict(latitude=lat, longitude=lon, start_date=y0.strftime("%Y-%m-%d"), end_date=y1.strftime("%Y-%m-%d"),
                      hourly=hourly, timezone="UTC", models="best_match", wind_speed_unit="ms")
-            for attempt in range(5):
-                r = requests.get(url, params=p, timeout=120)
-                if r.status_code == 200:
-                    break
-                log.warning("open-meteo %s %s -> %s %s", name, y0.year, r.status_code, r.text[:120])
-                time.sleep(10 * (attempt + 1))
-            r.raise_for_status()
+            r = _get_retry(url, p, f"open-meteo {name} {y0.year}")
             h = pd.DataFrame(r.json()["hourly"])
             h.columns = [c_.replace(f"_previous_day{lead_days}", "") for c_ in h.columns]
             h["ts_utc"] = pd.to_datetime(h.pop("time"), utc=True)
@@ -246,12 +256,7 @@ def pull_weather_obs() -> pd.DataFrame:
     for name, (lat, lon) in C.WEATHER_POINTS.items():
         p = dict(latitude=lat, longitude=lon, start_date=start.strftime("%Y-%m-%d"), end_date=end.strftime("%Y-%m-%d"),
                  hourly=hourly, timezone="UTC", wind_speed_unit="ms")
-        for attempt in range(5):
-            r = requests.get(url, params=p, timeout=180)
-            if r.status_code == 200:
-                break
-            log.warning("open-meteo archive %s -> %s %s", name, r.status_code, r.text[:120]); time.sleep(10 * (attempt + 1))
-        r.raise_for_status()
+        r = _get_retry(url, p, f"open-meteo archive {name}")
         h = pd.DataFrame(r.json()["hourly"])
         h["ts_utc"] = pd.to_datetime(h.pop("time"), utc=True); h["point"] = name
         frames.append(h); time.sleep(1)

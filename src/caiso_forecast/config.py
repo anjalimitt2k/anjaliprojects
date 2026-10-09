@@ -4,6 +4,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RAW = ROOT / "data" / "raw"
 PROCESSED = ROOT / "data" / "processed"
+for _d in (RAW, PROCESSED):          # gitignored, so they don't exist on a fresh checkout (CI)
+    _d.mkdir(parents=True, exist_ok=True)
 
 TZ = "US/Pacific"                  # CAISO operating timezone (local clock, observes DST)
 ZONE = "SP15"                      # price zone; load/net-load are CAISO-system (there is no SP15 load series)

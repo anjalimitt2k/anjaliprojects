@@ -1,6 +1,6 @@
 # CAISO Day-Ahead Forecaster — with a live, graded track record
 
-**Live scoreboard:** `site/index.html` (GitHub Pages needs the repo to be public on the current plan; the daily Action in `ops/github-workflow-daily.yml` deploys it once enabled) · **Forecast files:** [`forecasts/`](forecasts/) (committed with issue timestamps before each operating day) · **Graded record:** [`data/live/track_record.csv`](data/live/track_record.csv)
+**Live scoreboard:** https://anjalimitt2k.github.io/anjaliprojects/ (deployed daily by `.github/workflows/daily.yml`) · **Forecast files:** [`forecasts/`](forecasts/) (committed with issue timestamps before each operating day) · **Graded record:** [`data/live/track_record.csv`](data/live/track_record.csv)
 
 Every morning a job trains on all complete days, writes tomorrow's 24-hour SP15 load & price forecast to the repo *before* the
 day-ahead market clears, grades yesterday's file against actuals, and regenerates the scoreboard. The baseline that counts is

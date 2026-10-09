@@ -1,0 +1,44 @@
+name: daily-forecast
+on:
+  schedule:
+    - cron: "15 16 * * *"     # 16:15 UTC = 09:15 PDT / 08:15 PST, after CAISO's 07:00 renewables forecast, before the 10:00 DA close
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency: daily
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Restore raw data cache (rolls forward day by day)
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: raw-${{ github.run_id }}
+          restore-keys: raw-
+      - run: pip install -e . && pip install chronos-forecasting torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+      - name: Full pull if the cache is cold (first run only, ~40 min)
+        run: test -f data/raw/lmp_rt15.parquet || python scripts/pull_data.py
+      - name: Forecast tomorrow, grade yesterday, render site
+        env: { PYTHONPATH: src }
+        run: python -m caiso_forecast.live
+      - name: Commit the record
+        run: |
+          git config user.name "forecast-bot" && git config user.email "bot@users.noreply.github.com"
+          git add forecasts briefings site data/live
+          git commit -m "forecast $(date -u +%F): issue tomorrow, grade yesterday" || echo "nothing to commit"
+          git push
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+  deploy:
+    needs: run
+    runs-on: ubuntu-latest
+    environment: { name: github-pages }
+    steps:
+      - uses: actions/deploy-pages@v4

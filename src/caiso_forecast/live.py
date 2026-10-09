@@ -58,7 +58,12 @@ def rebuild_hourly(end_local: pd.Timestamp) -> pd.DataFrame:
 
 # ------------------------------------------------------------------ 2. forecast
 def forecast(D: pd.Timestamp, df: pd.DataFrame, use_chronos: bool = True) -> dict:
-    """D = target local date. Trains on complete days (<= D-2), predicts D."""
+    """D = target local date. Trains on complete days (<= D-2), predicts D. Never re-issues: an existing file is the record."""
+    FORECASTS.mkdir(exist_ok=True)
+    existing = FORECASTS / f"{D.strftime('%Y-%m-%d')}.json"
+    if existing.exists():
+        log.info("forecast for %s already issued at %s; not overwriting", D.date(), json.loads(existing.read_text())["issued_at_utc"])
+        return json.loads(existing.read_text())
     issued = datetime.now(timezone.utc)
     # slot the current weather forecast for D into the weather columns of D's rows (both d1 and d2 slots, so
     # the strict rule sees the same, fresher-than-training forecast; documented in the model card)

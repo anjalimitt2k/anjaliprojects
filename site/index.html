@@ -5,13 +5,131 @@
 pre{white-space:pre-wrap;background:#f3f2ee;padding:1rem;border-radius:6px;font-size:13px} img{max-width:100%} h2{margin-top:2rem} .muted{color:#52514e}</style></head><body>
 <h1>CAISO day-ahead forecaster — live, graded record</h1>
 <p class="muted">Every afternoon a job commits tomorrow's 24-hour SP15 load & real-time price forecast to the repo <i>before</i> the day-ahead market clears, then grades it against actuals the next day. Baseline that counts: CAISO's own published day-ahead load forecast; for price, the day-ahead LMP.</p>
-<h2>Running record</h2>
-<h2>Latest briefing</h2><pre>**Grid briefing for 2026-10-10** (issued 2026-10-09T12:33:38Z UTC, model trained through 2026-10-08).
-Forecast peak load 20,846 MW at 19:00 local (P10–P90 20,377–23,611); overnight minimum 19,737 MW. Afternoon-to-evening rise about 1,069 MW.
-Real-time SP15 price: median peak $45/MWh at 23:00, P90 $58 (mean-model peak $70, which sits above P90 when the day is skewed); daily median $39.
-Uncertainty band is narrower on the evening ramp (3,245 MW) than at midday (4,410 MW).
-Chronos zero-shot peak 38,772 MW (above ours by 17,925 MW).</pre>
-<h2>Last 30 graded days (MAE: MW for load, $/MWh for price)</h2>
+<h2>Running record</h2><p><b>1 days graded.</b> LightGBM beat CAISO's official load forecast on <b>0%</b> of days. Mean load MAE: ours 746 MW vs CAISO 733 MW; RT price MAE: ours $7.2 vs DA LMP $5.7.</p><table class="dataframe t">
+  <thead>
+    <tr style="text-align: right;">
+      <th>entrant / target</th>
+      <th>mean MAE</th>
+      <th>days</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>gbm load_mw MAE</td>
+      <td>745.9</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>chronos load_mw MAE</td>
+      <td>2,650.2</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>naive_168 load_mw MAE</td>
+      <td>2,387.6</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>caiso load_mw MAE</td>
+      <td>732.8</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>gbm lmp_rt MAE</td>
+      <td>7.2</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>chronos lmp_rt MAE</td>
+      <td>11.5</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>naive_168 lmp_rt MAE</td>
+      <td>12.0</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>da_lmp lmp_rt MAE</td>
+      <td>5.7</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>gbm lmp_da MAE</td>
+      <td>5.6</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>chronos lmp_da MAE</td>
+      <td>17.1</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <td>naive_168 lmp_da MAE</td>
+      <td>8.7</td>
+      <td>1</td>
+    </tr>
+  </tbody>
+</table>
+<h2>Latest briefing</h2><pre>**Grid briefing for 2026-10-13** (issued 2026-10-13T04:54:22Z UTC, model trained through 2026-10-11).
+Forecast peak load 26,854 MW at 18:00 local (P10–P90 26,571–27,553); overnight minimum 20,217 MW. Afternoon-to-evening rise about 6,331 MW.
+Real-time SP15 price: median peak $45/MWh at 19:00, P90 $47 (mean-model peak $49, which sits above P90 when the day is skewed); daily median $38.
+Uncertainty band is narrower on the evening ramp (1,216 MW) than at midday (3,202 MW).
+Chronos zero-shot peak 33,785 MW (above ours by 6,932 MW).</pre>
+<h2>Last 30 graded days (MAE: MW for load, $/MWh for price)</h2><table class="dataframe t">
+  <thead>
+    <tr style="text-align: right;">
+      <th>target_date</th>
+      <th>issued_at_utc</th>
+      <th>graded_at_utc</th>
+      <th>gbm__load_mw__MAE</th>
+      <th>gbm__load_mw__cov80</th>
+      <th>chronos__load_mw__MAE</th>
+      <th>chronos__load_mw__cov80</th>
+      <th>naive_168__load_mw__MAE</th>
+      <th>caiso__load_mw__MAE</th>
+      <th>gbm__lmp_rt__MAE</th>
+      <th>gbm__lmp_rt__cov80</th>
+      <th>chronos__lmp_rt__MAE</th>
+      <th>chronos__lmp_rt__cov80</th>
+      <th>naive_168__lmp_rt__MAE</th>
+      <th>da_lmp__lmp_rt__MAE</th>
+      <th>gbm__lmp_da__MAE</th>
+      <th>gbm__lmp_da__cov80</th>
+      <th>chronos__lmp_da__MAE</th>
+      <th>chronos__lmp_da__cov80</th>
+      <th>naive_168__lmp_da__MAE</th>
+      <th>actual_peak_load_mw</th>
+      <th>actual_max_rt_lmp</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2026-10-09</td>
+      <td>2026-10-09T00:17:44Z</td>
+      <td>2026-10-13T04:54:52Z</td>
+      <td>745.9</td>
+      <td>0.5</td>
+      <td>2,650.2</td>
+      <td>0.5</td>
+      <td>2,387.6</td>
+      <td>732.8</td>
+      <td>7.2</td>
+      <td>1.0</td>
+      <td>11.5</td>
+      <td>0.7</td>
+      <td>12.0</td>
+      <td>5.7</td>
+      <td>5.6</td>
+      <td>0.9</td>
+      <td>17.1</td>
+      <td>0.7</td>
+      <td>8.7</td>
+      <td>37,094.0</td>
+      <td>54.7</td>
+    </tr>
+  </tbody>
+</table>
 <h2>Walk-forward tournament (2024-07-01 → 2026-09-06)</h2><pre># Tournament scoreboard — walk-forward 2024-07-01 → 2026-09-06
 
 Identical rows, identical splits for every entrant. Spike/severe = hours whose actual DA LMP ≥ p95 / p99 of the full window. Weather features: strict variant (no run newer than the 09:00 D-1 origin).
@@ -127,5 +245,5 @@ strict = honest (no run after the origin); lenient = previous_day1 for all hours
 | lenient           | 713   | 1041   |  -10.5 |    2.9 |             1558.8 |
 | observed          | 670.3 |  973.7 |  -42.9 |    2.7 |             1646.5 |</pre>
 <h2>Figures</h2><img src="fig1_duck_by_year.png"><img src="fig5_intervals.png"><img src="fig7_battery_frontier.png">
-<p class="muted">Source: <a href="https://github.com/anjalimitt2k/anjaliprojects">github.com/anjalimitt2k/anjaliprojects</a>. Rendered 2026-10-09 13:15 UTC.</p>
+<p class="muted">Source: <a href="https://github.com/anjalimitt2k/anjaliprojects">github.com/anjalimitt2k/anjaliprojects</a>. Rendered 2026-10-13 04:54 UTC.</p>
 </body></html>

@@ -8,5 +8,5 @@ data/processed/*.csv
 !data/live/
 !data/processed/.gitkeep
 .DS_Store
-data/live/
+data/live/*
 !data/live/track_record.csv

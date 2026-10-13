@@ -6,11 +6,11 @@ pre{white-space:pre-wrap;background:#f3f2ee;padding:1rem;border-radius:6px;font-
 <h1>CAISO day-ahead forecaster — live, graded record</h1>
 <p class="muted">Every afternoon a job commits tomorrow's 24-hour SP15 load & real-time price forecast to the repo <i>before</i> the day-ahead market clears, then grades it against actuals the next day. Baseline that counts: CAISO's own published day-ahead load forecast; for price, the day-ahead LMP.</p>
 <h2>Running record</h2>
-<h2>Latest briefing</h2><pre>**Grid briefing for 2026-10-09** (issued 2026-10-09T00:17:44Z UTC, model trained through 2026-10-07).
-Forecast peak load 34,732 MW at 17:00 local (P10–P90 33,467–36,349); overnight minimum 24,480 MW. Afternoon-to-evening rise about 4,784 MW.
-Real-time SP15 price: median peak $54/MWh at 17:00, P90 $67 (mean-model peak $104, which sits above P90 when the day is skewed); daily median $43.
-Uncertainty band is narrower on the evening ramp (1,728 MW) than at midday (2,462 MW).
-Chronos zero-shot peak 42,056 MW (above ours by 7,324 MW).</pre>
+<h2>Latest briefing</h2><pre>**Grid briefing for 2026-10-10** (issued 2026-10-09T12:33:38Z UTC, model trained through 2026-10-08).
+Forecast peak load 20,846 MW at 19:00 local (P10–P90 20,377–23,611); overnight minimum 19,737 MW. Afternoon-to-evening rise about 1,069 MW.
+Real-time SP15 price: median peak $45/MWh at 23:00, P90 $58 (mean-model peak $70, which sits above P90 when the day is skewed); daily median $39.
+Uncertainty band is narrower on the evening ramp (3,245 MW) than at midday (4,410 MW).
+Chronos zero-shot peak 38,772 MW (above ours by 17,925 MW).</pre>
 <h2>Last 30 graded days (MAE: MW for load, $/MWh for price)</h2>
 <h2>Walk-forward tournament (2024-07-01 → 2026-09-06)</h2><pre># Tournament scoreboard — walk-forward 2024-07-01 → 2026-09-06
 
@@ -127,5 +127,5 @@ strict = honest (no run after the origin); lenient = previous_day1 for all hours
 | lenient           | 713   | 1041   |  -10.5 |    2.9 |             1558.8 |
 | observed          | 670.3 |  973.7 |  -42.9 |    2.7 |             1646.5 |</pre>
 <h2>Figures</h2><img src="fig1_duck_by_year.png"><img src="fig5_intervals.png"><img src="fig7_battery_frontier.png">
-<p class="muted">Source: <a href="https://github.com/anjalimitt2k/anjaliprojects">github.com/anjalimitt2k/anjaliprojects</a>. Rendered 2026-10-09 00:25 UTC.</p>
+<p class="muted">Source: <a href="https://github.com/anjalimitt2k/anjaliprojects">github.com/anjalimitt2k/anjaliprojects</a>. Rendered 2026-10-09 13:15 UTC.</p>
 </body></html>

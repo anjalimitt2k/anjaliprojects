@@ -222,7 +222,12 @@ def main():
     df = rebuild_hourly(D) if a.skip_update else update_data(yesterday)
     df.to_parquet(C.PROCESSED / "hourly_live.parquet", index=False)
     f = forecast(D, df, use_chronos=not a.no_chronos)
-    grade(yesterday, df)
+    # grade every issued forecast whose day is over and which is not yet in the record (backfills missed days)
+    graded = set(pd.read_csv(TRACK).target_date.astype(str)) if TRACK.exists() else set()
+    for path in sorted(FORECASTS.glob("*.json")):
+        d = pd.Timestamp(path.stem)
+        if d <= yesterday and path.stem not in graded:
+            grade(d, df)
     render_site(df)
     print(briefing(f, df))
 

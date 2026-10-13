@@ -21,8 +21,11 @@ TARGETS = ["load_mw", "lmp_rt", "lmp_da"]
 
 
 def _by_date_hour(df: pd.DataFrame, col: str) -> pd.DataFrame:
-    """date_local x hour_local matrix (fall-back duplicate hour averaged)."""
-    return df.pivot_table(index="date_local", columns="hour_local", values=col, aggfunc="mean")
+    """date_local x hour_local matrix (fall-back duplicate hour averaged). Keeps every date in the frame, including
+    dates whose values are all NaN (the live target day): pivot_table's default dropna=True silently removed them,
+    which made the shifted lookups NaN for the one day that matters when live."""
+    P = df.pivot_table(index="date_local", columns="hour_local", values=col, aggfunc="mean", dropna=False)
+    return P.reindex(index=sorted(df.date_local.unique()), columns=range(24))
 
 
 def build(df: pd.DataFrame, weather: str = "strict") -> pd.DataFrame:
